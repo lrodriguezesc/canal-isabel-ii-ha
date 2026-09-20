@@ -1,0 +1,32 @@
+name: "Canal de Isabel II (consumo de agua)"
+version: "0.1.0"
+slug: "civii_ovir"
+description: "Scraper de consumo horario de agua de la Oficina Virtual de Canal de Isabel II, publicado directamente en Home Assistant (sensores + estadisticas externas)."
+url: "https://github.com/lrodriguezesc/canal-isabel-ii-ha"
+arch:
+  - amd64
+startup: application
+boot: auto
+init: false
+homeassistant_api: true
+ingress: true
+ingress_port: 8099
+panel_icon: "mdi:water"
+panel_title: "Canal Isabel II"
+map:
+  - type: data
+    read_only: false
+options:
+  username: ""
+  password: ""
+  document_type: "NIF"
+  scan_interval_minutes: 30
+  history_window_days: 3
+  anomaly_threshold_liters: 500
+schema:
+  username: str
+  password: password
+  document_type: "list(NIF|NIE)"
+  scan_interval_minutes: "int(10,60)"
+  history_window_days: "int(1,30)"
+  anomaly_threshold_liters: "int(50,5000)"

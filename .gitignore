@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+test_login.py
+*.local.json
+last_response.html
+scripts/*.html
