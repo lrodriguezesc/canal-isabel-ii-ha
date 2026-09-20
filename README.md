@@ -213,17 +213,37 @@ beyond solving a reCAPTCHA if it's still blocked.
   water source is pointing at the live sensor instead of the external statistic - fix it by
   following "Adding the sensor to the Energy dashboard" above.
 
-## Updating the Add-on after a code change
+## Updating
 
-1. Copy `addon/civii_ovir/` over again to `/addons/local/civii_ovir/` (overwriting).
-2. Settings → Add-ons → Store → (⋮) → "Check for updates" (in case `config.yaml` changed), or
-   rebuild the add-on directly from its Info tab if only the Python code changed ("Rebuild"
-   button).
-3. Restart it.
+**If you installed it as a repository (Option A):** nothing to download by hand. Supervisor
+pulls the repository automatically (`git fetch` + `reset --hard`) every 3 hours, or immediately
+when you hit Settings → Add-ons → Add-on Store → (⋮) → **"Check for updates"**. Whenever this
+repo's `version:` is bumped, the add-on page shows an **Update** button - one click and you're
+on the new version.
+
+**If you installed it as a local add-on (Option B):** re-copy `addon/civii_ovir/` to
+`/addons/local/civii_ovir/`, then "Check for updates" → **Update**.
+
+> **Note for developers:** `version:` in `config.yaml` is the *only* update trigger. If you
+> change code without bumping it, Supervisor sees nothing new - use the **Rebuild** button on
+> the add-on's Info tab instead. One exception: the AppArmor profile is only (re)installed on
+> the install/update path, never on a rebuild, so changes to `apparmor.txt` do require a version
+> bump.
 
 The persistent Chrome profile and internal state (`app_state.json`, with the running total and
 the last-processed-hour watermark) live in the add-on's own `/data` volume, so they survive
-restarts and rebuilds - no need to redo the backfill.
+restarts, rebuilds and updates - no need to redo the backfill.
+
+## Security
+
+The add-on reports a Supervisor security rating of **8/8**. It requests no privileged
+capabilities, no host network or PID namespace, no Docker API access, and keeps the default
+Supervisor role; the web UI is served through Ingress rather than an exposed port; and it ships
+its own AppArmor profile (`apparmor.txt`), which denies mounting, kernel/security filesystem
+access and other host-level operations it never performs.
+
+Your credentials are stored by Supervisor as add-on options (never in this repo or the Docker
+image), are read at runtime from `/data/options.json`, and are never written to the logs.
 
 ## Technical notes
 

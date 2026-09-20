@@ -1,0 +1,52 @@
+#include <tunables/global>
+
+# The profile name below is rewritten by Supervisor to the real install slug
+# (local_civii_ovir, or <repo hash>_civii_ovir) via adjust_profile() before the
+# profile is loaded, so this one file works for both local and repository
+# installs. Exactly one "profile" line is allowed in this file.
+profile civii_ovir flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # --- Allowed -------------------------------------------------------------
+  # bash + jq + python + Playwright + headless Chrome. Chrome is multi-process
+  # and touches a great deal of the filesystem, /dev/shm and /proc, so file
+  # access is broad here and the hardening is expressed as explicit denials
+  # below instead - in AppArmor a deny rule always wins over an allow rule.
+  file,
+  signal,
+  unix,
+  network,
+
+  # Chrome's zygote/renderer/crashpad processes run under this same profile and
+  # inspect one another.
+  ptrace peer=@{profile_name},
+
+  capability chown,
+  capability dac_override,
+  capability fowner,
+  capability fsetid,
+  capability kill,
+  capability net_bind_service,
+  capability setgid,
+  capability setuid,
+
+  # --- Denied --------------------------------------------------------------
+  # Host-level operations this add-on never performs. Note that every
+  # capability not granted above is already denied - notably sys_admin,
+  # sys_module, sys_ptrace, sys_rawio, sys_time, net_admin and net_raw.
+  deny mount,
+  deny umount,
+  deny pivot_root,
+
+  deny /sys/kernel/security/** rwklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/fs/cgroup/** w,
+
+  deny /proc/sys/kernel/** w,
+  deny /proc/sysrq-trigger rwklx,
+  deny @{PROC}/@{pid}/mem rwklx,
+
+  deny /etc/shadow rwklx,
+  deny /etc/sudoers rwklx,
+  deny /etc/sudoers.d/** rwklx,
+}
