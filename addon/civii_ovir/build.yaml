@@ -1,0 +1,9 @@
+# Pinned explicitly rather than relying on the Dockerfile's `ARG BUILD_FROM`
+# default: without this Supervisor hands the build its own Alpine base image,
+# which has no apt-get and no Debian packages for Google Chrome.
+#
+# Fully qualified on purpose - Supervisor validates this value against a
+# registry/repo/name:tag pattern and silently falls back to its Alpine default
+# if it doesn't match, so a bare "debian:bookworm-slim" is not enough.
+build_from:
+  amd64: "docker.io/library/debian:bookworm-slim"

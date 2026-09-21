@@ -26,6 +26,7 @@ from .civii_scraper import fetch_range
 from .ha_client import HAClient
 from .panel import build_app
 from .state import SharedState
+from . import session_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger("civii_ovir")
@@ -316,6 +317,11 @@ async def fetch_loop(
             page = context.pages[0] if context.pages else await context.new_page()
             shared.page = page
 
+            # Carry the previous cycle's session over, so ensure_logged_in()
+            # below can skip the login form (and its reCAPTCHA) entirely while
+            # the portal session is still alive.
+            await session_store.restore(context)
+
             if not app_state.get("stats_backfilled"):
                 await ha_client.set_status("backfilling", detail=f"Importing up to {INITIAL_BACKFILL_DAYS} days of history")
                 await _backfill_history(
@@ -357,6 +363,7 @@ async def fetch_loop(
         finally:
             shared.page = None
             if context is not None:
+                await session_store.save(context)
                 await context.close()
 
         next_at = datetime.now(timezone.utc) + timedelta(minutes=scan_interval_min)

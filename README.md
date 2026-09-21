@@ -59,7 +59,7 @@ than living inside the Home Assistant Core process.
    - `username`: your NIF or NIE (the same one you use to log into the Oficina Virtual).
    - `password`: your Oficina Virtual password.
    - `document_type`: `NIF` or `NIE`.
-   - `scan_interval_minutes` (optional, default 30).
+   - `scan_interval_minutes` (optional, default 30 - see "Choosing a refresh interval").
    - `history_window_days` (optional, default 3).
    - `anomaly_threshold_liters` (optional, default 500).
 5. Save and **start** the add-on (Info tab → Start). Also enable "Start on boot" and "Watchdog"
@@ -187,9 +187,29 @@ automation:
 | `username` | — | — | Oficina Virtual NIF/NIE. |
 | `password` | — | — | Oficina Virtual password. |
 | `document_type` | `NIF`\|`NIE` | `NIF` | Document type. |
-| `scan_interval_minutes` | 10-60 | 30 | How often it refreshes. |
+| `scan_interval_minutes` | 10-1440 | 30 | How often it refreshes, in minutes (10 minutes to 24 hours). See the note below. |
 | `history_window_days` | 1-30 | 3 | How many days back each normal cycle re-checks, to catch late corrections from the meter itself. |
 | `anomaly_threshold_liters` | 50-5000 | 500 | Liters/hour above which an hour is considered anomalous (see "Anomaly detection"). |
+
+### Choosing a refresh interval
+
+The meter itself only publishes hourly data, so refreshing more often than once an hour buys you
+no extra resolution - but the interval does decide how often the add-on has to log in, and every
+login is a chance for a reCAPTCHA to appear. The portal's session lasts somewhere between half an
+hour and an hour, and the add-on reuses it between cycles (see "Session reuse" below), which
+makes the trade-off non-obvious:
+
+- **30 minutes or less** - each cycle refreshes the session before it expires, so after the
+  first login the add-on essentially stops logging in. Fewest reCAPTCHAs, at the cost of a Chrome
+  launch every half hour.
+- **Several hours, or once a day** - the session is always dead by the next cycle, so every cycle
+  logs in; but there are only a handful of cycles a day, so few logins in absolute terms. Fine if
+  you just want a daily update.
+- **45-90 minutes is the worst of both** - frequent cycles *and* an expired session each time,
+  meaning a login almost every cycle.
+
+Data is never lost by choosing a long interval: each cycle re-fetches `history_window_days` of
+history, and anything older is picked up by gap recovery below.
 
 ### Automatic gap recovery
 
@@ -245,22 +265,35 @@ access and other host-level operations it never performs.
 Your credentials are stored by Supervisor as add-on options (never in this repo or the Docker
 image), are read at runtime from `/data/options.json`, and are never written to the logs.
 
+`/data` also holds the Chrome profile (`browser_profile/`) and the saved portal session
+(`session_cookies.json`, mode `600`). Both contain live authentication material, so treat an
+add-on backup the same way you would treat the password itself. Cookie values are never logged -
+only how many were saved or restored, and for which domains.
+
 ## Technical notes
 
 Canal de Isabel II's portal is a Liferay Portal, not a public API. The scraping reproduces the
 real flow: form login with a per-page-load CSRF token (`p_auth`), the date filter as a portlet
 action, and the hourly telelectura CSV download as a resource of that same portlet - all of it
 through Playwright's `context.request` (the browser's own session), never a separate `requests`
-client. The session expires roughly every hour; it re-authenticates on its own when it detects
-that.
+client. The session expires after roughly half an hour to an hour of inactivity; it
+re-authenticates on its own when it detects that.
 
 **Memory usage**: Chrome is only launched during the active cycle (login + download, normally a
 few seconds) and closed immediately after - it isn't kept running in the background between
-cycles. The persistent profile (cookies, reCAPTCHA trust) lives on disk
-(`/data/browser_profile`, managed by Supervisor) and survives the process closing and reopening,
-so this doesn't affect login reliability. The Ingress panel reflects this: outside an active
-cycle or a pending reCAPTCHA, there's nothing to capture and it says so instead of showing a
-broken image.
+cycles. The persistent profile (`/data/browser_profile`, managed by Supervisor) carries Google's
+long-lived reCAPTCHA trust cookies across those restarts. The Ingress panel reflects the same
+lifecycle: outside an active cycle or a pending reCAPTCHA, there's nothing to capture and it
+says so instead of showing a broken image.
+
+**Session reuse**: the portal login itself does *not* survive in that profile. `JSESSIONID` and
+the portal's F5 anti-bot cookies are session cookies (no expiry), which Chrome keeps in memory
+only and discards when it closes - so on its own, closing the browser each cycle would mean
+logging in from scratch every single cycle, and rolling the reCAPTCHA dice every single time.
+The add-on therefore saves the cookie jar to `/data/session_cookies.json` before closing Chrome
+and restores it on the next launch. When the portal session is still alive the whole login step
+is skipped (`Already logged in (persistent session still valid)` in the logs); when it has
+expired, the normal login runs as before.
 
 ## Usage notice
 
