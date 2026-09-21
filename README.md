@@ -59,7 +59,7 @@ than living inside the Home Assistant Core process.
    - `username`: your NIF or NIE (the same one you use to log into the Oficina Virtual).
    - `password`: your Oficina Virtual password.
    - `document_type`: `NIF` or `NIE`.
-   - `scan_interval_minutes` (optional, default 30 - see "Choosing a refresh interval").
+   - `scan_interval_minutes` (optional, default 10 - see "Choosing a refresh interval").
    - `history_window_days` (optional, default 3).
    - `anomaly_threshold_liters` (optional, default 500).
 5. Save and **start** the add-on (Info tab → Start). Also enable "Start on boot" and "Watchdog"
@@ -187,7 +187,7 @@ automation:
 | `username` | — | — | Oficina Virtual NIF/NIE. |
 | `password` | — | — | Oficina Virtual password. |
 | `document_type` | `NIF`\|`NIE` | `NIF` | Document type. |
-| `scan_interval_minutes` | 10-1440 | 30 | How often it refreshes, in minutes (10 minutes to 24 hours). See the note below. |
+| `scan_interval_minutes` | 10-1440 | 10 | How often it refreshes, in minutes. The default sits under the portal's 15-minute session timeout on purpose - read "Choosing a refresh interval" before raising it. |
 | `history_window_days` | 1-30 | 3 | How many days back each normal cycle re-checks, to catch late corrections from the meter itself. |
 | `anomaly_threshold_liters` | 50-5000 | 500 | Liters/hour above which an hour is considered anomalous (see "Anomaly detection"). |
 
@@ -195,21 +195,29 @@ automation:
 
 The meter itself only publishes hourly data, so refreshing more often than once an hour buys you
 no extra resolution - but the interval does decide how often the add-on has to log in, and every
-login is a chance for a reCAPTCHA to appear. The portal's session lasts somewhere between half an
-hour and an hour, and the add-on reuses it between cycles (see "Session reuse" below), which
-makes the trade-off non-obvious:
+login is a chance for a reCAPTCHA to appear.
 
-- **30 minutes or less** - each cycle refreshes the session before it expires, so after the
-  first login the add-on essentially stops logging in. Fewest reCAPTCHAs, at the cost of a Chrome
-  launch every half hour.
-- **Several hours, or once a day** - the session is always dead by the next cycle, so every cycle
-  logs in; but there are only a handful of cycles a day, so few logins in absolute terms. Fine if
-  you just want a daily update.
-- **45-90 minutes is the worst of both** - frequent cycles *and* an expired session each time,
-  meaning a login almost every cycle.
+**The portal's session times out after exactly 15 minutes of inactivity, and does not auto-extend.**
+That is not a guess: Liferay publishes the value to the browser, and the add-on logs it on every
+cycle, e.g.
 
-Data is never lost by choosing a long interval: each cycle re-fetches `history_window_days` of
-history, and anything older is picked up by gap recovery below.
+```
+Portal session timeout: 15.0 min (warning at 1.0 min, autoExtend=False)
+```
+
+Check your own logs for that line rather than trusting the number here - it is the portal's
+setting, not ours, and it can change. Everything below follows from it:
+
+- **10 minutes (recommended)** - the only setting in range that is comfortably under the timeout,
+  so each cycle refreshes the session before it dies and the add-on essentially stops logging in.
+  Fewest reCAPTCHAs by a wide margin. Costs a ~3 second Chrome launch every 10 minutes.
+- **15 minutes or more** - the session is always dead by the next cycle, so *every* cycle logs in
+  and rolls the reCAPTCHA dice. At 30 minutes that is 48 logins a day.
+- **If you do go above 15**, go far above it - once or twice a day. You still log in every cycle,
+  but 2 logins a day is very different from 48.
+
+The one thing that is never a reason to pick a long interval is data safety: each cycle re-fetches
+`history_window_days` of history, and anything older is picked up by gap recovery below.
 
 ### Automatic gap recovery
 
@@ -286,14 +294,21 @@ long-lived reCAPTCHA trust cookies across those restarts. The Ingress panel refl
 lifecycle: outside an active cycle or a pending reCAPTCHA, there's nothing to capture and it
 says so instead of showing a broken image.
 
-**Session reuse**: the portal login itself does *not* survive in that profile. `JSESSIONID` and
-the portal's F5 anti-bot cookies are session cookies (no expiry), which Chrome keeps in memory
-only and discards when it closes - so on its own, closing the browser each cycle would mean
-logging in from scratch every single cycle, and rolling the reCAPTCHA dice every single time.
-The add-on therefore saves the cookie jar to `/data/session_cookies.json` before closing Chrome
-and restores it on the next launch. When the portal session is still alive the whole login step
-is skipped (`Already logged in (persistent session still valid)` in the logs); when it has
-expired, the normal login runs as before.
+**Session reuse**: `JSESSIONID`, the Liferay `LFR_SESSION_STATE_*` cookies and the portal's F5
+anti-bot `TS*` cookies all carry no expiry, so whether they survive Chrome closing is not
+something to assume either way. The add-on belt-and-braces it: the cookie jar is saved to
+`/data/session_cookies.json` (mode `600`) before Chrome closes and restored on the next launch,
+and each restore logs what the Chrome profile supplied on its own beforehand, so you can see in
+the logs which mechanism is actually carrying the session:
+
+```
+Chrome profile alone provided 15 cookies: [..., 'JSESSIONID', 'TS01342a05', ...]
+Restored 16 cookies from the previous cycle
+Already logged in (persistent session still valid)
+```
+
+When the session is still alive the login step is skipped entirely; when it has expired (see the
+15-minute timeout above) the normal login runs, reCAPTCHA and all.
 
 ## Usage notice
 

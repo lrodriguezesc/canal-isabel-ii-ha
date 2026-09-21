@@ -26,6 +26,48 @@ LOGIN_TIMEOUT_MS = 30_000
 MANUAL_CHALLENGE_TIMEOUT_MS = 10 * 60 * 1000
 
 
+_SESSION_CONFIG_JS = """() => {
+  const out = {};
+  try {
+    if (window.Liferay && Liferay.Session) {
+      // Liferay publishes its own session length to the browser so it can pop
+      // the "your session is about to expire" warning. Both are milliseconds.
+      for (const key of ['sessionLength', 'warningLength', 'autoExtend']) {
+        try {
+          out[key] = Liferay.Session.get ? Liferay.Session.get(key) : Liferay.Session[key];
+        } catch (e) { /* key absent on this version */ }
+      }
+    } else {
+      out.liferaySession = 'absent';
+    }
+  } catch (e) { out.error = String(e); }
+  return out;
+}"""
+
+
+async def log_session_config(page: Page) -> None:
+    """Log the portal's advertised session timeout, so the right
+    scan_interval_minutes can be chosen from evidence instead of bisected over
+    hours of failed logins. Best-effort: never let a diagnostic break a cycle."""
+    try:
+        cfg = await page.evaluate(_SESSION_CONFIG_JS)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.info("Could not read the portal's session config: %s", err)
+        return
+
+    length_ms = cfg.get("sessionLength")
+    if isinstance(length_ms, (int, float)) and length_ms > 0:
+        _LOGGER.info(
+            "Portal session timeout: %.1f min (warning at %.1f min, autoExtend=%s) - raw=%s",
+            length_ms / 60000,
+            (cfg.get("warningLength") or 0) / 60000,
+            cfg.get("autoExtend"),
+            cfg,
+        )
+    else:
+        _LOGGER.info("Portal session config (no usable sessionLength): %s", cfg)
+
+
 async def is_login_page(page: Page) -> bool:
     return await page.get_by_role("button", name="Entrar").first.count() > 0
 
@@ -109,3 +151,4 @@ async def ensure_logged_in(
         await perform_login(page, creds, ha_client, shared)
     else:
         _LOGGER.info("Already logged in (persistent session still valid)")
+    await log_session_config(page)

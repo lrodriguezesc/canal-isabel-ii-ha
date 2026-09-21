@@ -20,7 +20,7 @@ options:
   username: ""
   password: ""
   document_type: "NIF"
-  scan_interval_minutes: 30
+  scan_interval_minutes: 10
   history_window_days: 3
   anomaly_threshold_liters: 500
 schema:
