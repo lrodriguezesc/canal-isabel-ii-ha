@@ -71,16 +71,25 @@ than living inside the Home Assistant Core process.
 
 Login usually goes through cleanly on its own (it uses a persistent Chrome profile that builds
 trust over time), but every so often Google may ask for a visible challenge ("select all
-squares with motorcycles", etc). When that happens:
+squares with motorcycles", etc). reCAPTCHA's risk score is per-attempt, and in practice a
+challenge that appears on one cycle often does not reappear on the very next one 10 minutes
+later, with nobody touching anything - so the add-on does not bother you the first time:
 
-1. You get a **persistent Home Assistant notification** about it.
-2. Open the add-on's panel: its sidebar icon (if pinned), or **Settings → Add-ons → Canal de
-   Isabel II (consumo de agua) → open web UI** (the icon on the "Info" tab, top right).
-3. You'll see a live screenshot of the browser. Click the tiles just like you would on the site
-   itself, then "Verify"/"Skip" as needed.
-4. You have 10 minutes from the notification. If you miss the window, that cycle fails and
-   retries on the next scheduled cycle — or hit the panel's **"Retry now"** button to force it
-   immediately instead of waiting.
+1. **First challenge**: handled silently. That cycle fails fast (no waiting, no notification)
+   and the next scheduled cycle just tries again on its own. Most of the time this is the end of
+   it - check the add-on's log if you're curious, but there's nothing to do.
+2. **If it happens again right after**, with no successful login in between: *now* you get a
+   **persistent Home Assistant notification**, and the add-on waits for you to solve it.
+   - Open the add-on's panel: its sidebar icon (if pinned), or **Settings → Add-ons → Canal de
+     Isabel II (consumo de agua) → open web UI** (the icon on the "Info" tab, top right).
+   - You'll see a live screenshot of the browser. Click the tiles just like you would on the
+     site itself, then "Verify"/"Skip" as needed.
+   - You have 10 minutes from the notification. If you miss the window, that cycle fails and the
+     silent-retry-then-notify pattern starts over on the next one - or hit the panel's
+     **"Retry now"** button to force it immediately instead of waiting.
+
+Any successful login (automatic or manual) resets the count, so this is about *consecutive*
+failures, not a running total.
 
 ## Adding the sensor to the Energy dashboard
 

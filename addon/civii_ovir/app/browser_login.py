@@ -8,6 +8,14 @@ of the time. When it doesn't, it escalates to a visible image challenge - this
 runs headless (no display in this container), so instead of a human watching
 a window, we notify Home Assistant and let the Ingress panel (app/panel.py)
 screenshot/click into the same live `page` object until it clears or times out.
+
+Challenges are not always a dead end on their own: reCAPTCHA's risk score is
+per-attempt, and in practice a challenge that appears on one cycle often does
+not reappear on the very next one, 10 minutes later, with nobody touching
+anything (observed directly in this add-on's own logs). So a lone challenge is
+handled silently - fail this cycle fast, let the next scheduled cycle retry -
+and only escalates to notifying the user once a challenge repeats back-to-back
+with no successful login in between. See SILENT_RETRY_LIMIT below.
 """
 
 from __future__ import annotations
@@ -24,6 +32,12 @@ _LOGGER = logging.getLogger(__name__)
 BASE_URL = "https://oficinavirtual.canaldeisabelsegunda.es"
 LOGIN_TIMEOUT_MS = 30_000
 MANUAL_CHALLENGE_TIMEOUT_MS = 10 * 60 * 1000
+
+# How many consecutive challenge failures (no successful login in between) to
+# absorb silently before notifying the user and waiting for a manual solve.
+# 1 = the first challenge always gets one silent auto-retry on the next
+# scheduled cycle; the user is only bothered if it happens twice in a row.
+SILENT_RETRY_LIMIT = 1
 
 
 _SESSION_CONFIG_JS = """() => {
@@ -107,6 +121,7 @@ async def perform_login(
         await page.wait_for_function(
             "url => window.location.href !== url", arg=url_before, timeout=8_000
         )
+        shared.consecutive_challenge_failures = 0
         return
     except PlaywrightTimeoutError:
         pass
@@ -118,7 +133,27 @@ async def perform_login(
             "appeared - login likely failed outright (check credentials)."
         )
 
-    _LOGGER.warning("Visible reCAPTCHA challenge appeared - notifying and waiting for manual solve")
+    shared.consecutive_challenge_failures += 1
+    attempt = shared.consecutive_challenge_failures
+
+    if attempt <= SILENT_RETRY_LIMIT:
+        # Don't wake the user for a challenge that may well clear on its own -
+        # fail this cycle fast and let the next scheduled cycle try again.
+        # main.py's own except-block will push this message to the status
+        # sensor (detail=str(err)) - no need to call ha_client here too.
+        _LOGGER.warning(
+            "Visible reCAPTCHA challenge appeared (silent retry %d/%d) - not "
+            "notifying, next scheduled cycle will try again on its own",
+            attempt, SILENT_RETRY_LIMIT,
+        )
+        raise RuntimeError(
+            f"reCAPTCHA challenge appeared (silent retry {attempt}/{SILENT_RETRY_LIMIT}, no notification sent)"
+        )
+
+    _LOGGER.warning(
+        "Visible reCAPTCHA challenge appeared again (%d in a row) - notifying and waiting for manual solve",
+        attempt,
+    )
     shared.challenge_active = True
     shared.status_message = "Waiting for reCAPTCHA to be solved manually"
     await ha_client.set_status("waiting_captcha", detail="Visible reCAPTCHA challenge - solve it via the Ingress panel")
@@ -140,6 +175,7 @@ async def perform_login(
         shared.challenge_active = False
         await ha_client.dismiss_notification()
 
+    shared.consecutive_challenge_failures = 0
     _LOGGER.info("Login OK after manual challenge solve, url=%s", page.url)
 
 
@@ -151,4 +187,5 @@ async def ensure_logged_in(
         await perform_login(page, creds, ha_client, shared)
     else:
         _LOGGER.info("Already logged in (persistent session still valid)")
+        shared.consecutive_challenge_failures = 0
     await log_session_config(page)

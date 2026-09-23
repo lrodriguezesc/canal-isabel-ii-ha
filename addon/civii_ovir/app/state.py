@@ -20,3 +20,8 @@ class SharedState:
     last_readings_count: int = 0
     status_message: str = "Starting..."
     retry_requested: asyncio.Event = field(default_factory=asyncio.Event)
+    # Consecutive reCAPTCHA challenges with no successful login in between.
+    # Reset to 0 on any successful login (automatic or manual). See
+    # browser_login.py's SILENT_RETRY_LIMIT - the backoff before we bother the
+    # user is keyed off this counter.
+    consecutive_challenge_failures: int = 0
