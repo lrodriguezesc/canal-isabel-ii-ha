@@ -233,7 +233,7 @@ def _date_chunks(start: date, end: date, max_days: int) -> list[tuple[date, date
 
 async def _fetch_and_push_range(
     page, request, creds, ha_client, shared, app_state, date_from: date, date_to: date,
-    anomaly_threshold_liters: float,
+    anomaly_threshold_liters: float, silent_retry_limit: int,
 ) -> int:
     """Fetch+push [date_from, date_to], chunked into <=30-day pieces if needed
     (the portal's per-request export limit). Returns total readings pushed."""
@@ -241,7 +241,7 @@ async def _fetch_and_push_range(
     for chunk_start, chunk_end in _date_chunks(date_from, date_to, MAX_EXPORT_RANGE_DAYS):
         try:
             readings = await fetch_range(
-                page, request, creds, ha_client, shared, chunk_start, chunk_end
+                page, request, creds, ha_client, shared, chunk_start, chunk_end, silent_retry_limit
             )
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Fetch chunk %s-%s failed: %s", chunk_start, chunk_end, err)
@@ -251,7 +251,9 @@ async def _fetch_and_push_range(
     return total
 
 
-async def _backfill_history(page, request, creds, ha_client, shared, app_state, anomaly_threshold_liters) -> None:
+async def _backfill_history(
+    page, request, creds, ha_client, shared, app_state, anomaly_threshold_liters, silent_retry_limit
+) -> None:
     if app_state.get("stats_backfilled"):
         return
 
@@ -261,7 +263,8 @@ async def _backfill_history(page, request, creds, ha_client, shared, app_state, 
     today = date.today()
     oldest = today - timedelta(days=INITIAL_BACKFILL_DAYS)
     await _fetch_and_push_range(
-        page, request, creds, ha_client, shared, app_state, oldest, today, anomaly_threshold_liters
+        page, request, creds, ha_client, shared, app_state, oldest, today,
+        anomaly_threshold_liters, silent_retry_limit,
     )
 
     app_state["stats_backfilled"] = True
@@ -306,7 +309,7 @@ async def _launch_browser(playwright):
 
 async def fetch_loop(
     playwright, ha_client: HAClient, shared: SharedState, creds: dict, scan_interval_min: int,
-    history_days: int, anomaly_threshold_liters: float,
+    history_days: int, anomaly_threshold_liters: float, silent_retry_limit: int,
 ) -> None:
     app_state = _load_app_state()
 
@@ -325,12 +328,13 @@ async def fetch_loop(
             if not app_state.get("stats_backfilled"):
                 await ha_client.set_status("backfilling", detail=f"Importing up to {INITIAL_BACKFILL_DAYS} days of history")
                 await _backfill_history(
-                    page, context.request, creds, ha_client, shared, app_state, anomaly_threshold_liters
+                    page, context.request, creds, ha_client, shared, app_state,
+                    anomaly_threshold_liters, silent_retry_limit,
                 )
 
             shared.status_message = "Fetching consumption..."
             await ha_client.set_status("fetching", detail="Logging in")
-            await ensure_logged_in(page, creds, ha_client, shared)
+            await ensure_logged_in(page, creds, ha_client, shared, silent_retry_limit)
 
             date_to = date.today()
             date_from = _compute_fetch_start(app_state, history_days, date_to)
@@ -349,7 +353,7 @@ async def fetch_loop(
 
             count = await _fetch_and_push_range(
                 page, context.request, creds, ha_client, shared, app_state, date_from, date_to,
-                anomaly_threshold_liters,
+                anomaly_threshold_liters, silent_retry_limit,
             )
 
             shared.last_fetch_at = datetime.now(timezone.utc).isoformat()
@@ -390,6 +394,7 @@ async def main() -> None:
     history_days = int(os.environ.get("CIVII_HISTORY_WINDOW_DAYS", "3"))
     ingress_port = int(os.environ.get("CIVII_INGRESS_PORT", "8099"))
     anomaly_threshold_liters = float(os.environ.get("CIVII_ANOMALY_THRESHOLD_LITERS", "500"))
+    silent_retry_limit = int(os.environ.get("CIVII_SILENT_RECAPTCHA_RETRIES", "1"))
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -409,7 +414,8 @@ async def main() -> None:
 
             try:
                 await fetch_loop(
-                    p, ha_client, shared, creds, scan_interval_min, history_days, anomaly_threshold_liters
+                    p, ha_client, shared, creds, scan_interval_min, history_days,
+                    anomaly_threshold_liters, silent_retry_limit,
                 )
             finally:
                 await runner.cleanup()

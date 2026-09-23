@@ -18,7 +18,7 @@ from datetime import date, datetime
 from bs4 import BeautifulSoup
 from playwright.async_api import APIRequestContext, Page
 
-from .browser_login import BASE_URL, ensure_logged_in
+from .browser_login import BASE_URL, DEFAULT_SILENT_RETRY_LIMIT, ensure_logged_in
 from .ha_client import HAClient
 from .state import SharedState
 
@@ -189,6 +189,7 @@ async def fetch_range(
     shared: SharedState,
     date_from: date,
     date_to: date,
+    silent_retry_limit: int = DEFAULT_SILENT_RETRY_LIMIT,
 ) -> list[dict]:
     last_error: Exception | None = None
     for attempt in range(1, MAX_FETCH_RETRIES + 1):
@@ -197,7 +198,7 @@ async def fetch_range(
             csv_text = await _export_csv(request)
         except SessionExpiredError:
             _LOGGER.info("Session expired mid-fetch, re-authenticating (attempt %d)", attempt)
-            await ensure_logged_in(page, creds, ha_client, shared)
+            await ensure_logged_in(page, creds, ha_client, shared, silent_retry_limit)
             continue
 
         readings, periods = _parse_csv(csv_text)

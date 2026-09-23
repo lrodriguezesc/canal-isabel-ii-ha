@@ -15,7 +15,7 @@ not reappear on the very next one, 10 minutes later, with nobody touching
 anything (observed directly in this add-on's own logs). So a lone challenge is
 handled silently - fail this cycle fast, let the next scheduled cycle retry -
 and only escalates to notifying the user once a challenge repeats back-to-back
-with no successful login in between. See SILENT_RETRY_LIMIT below.
+with no successful login in between. See the silent_recaptcha_retries add-on option below.
 """
 
 from __future__ import annotations
@@ -37,7 +37,10 @@ MANUAL_CHALLENGE_TIMEOUT_MS = 10 * 60 * 1000
 # absorb silently before notifying the user and waiting for a manual solve.
 # 1 = the first challenge always gets one silent auto-retry on the next
 # scheduled cycle; the user is only bothered if it happens twice in a row.
-SILENT_RETRY_LIMIT = 1
+# Configurable via the add-on's silent_recaptcha_retries option (0 restores
+# the old behaviour of notifying on every challenge); this is just the
+# fallback for direct callers that don't pass one explicitly.
+DEFAULT_SILENT_RETRY_LIMIT = 1
 
 
 _SESSION_CONFIG_JS = """() => {
@@ -94,7 +97,11 @@ async def dismiss_cookie_banner(page: Page) -> None:
 
 
 async def perform_login(
-    page: Page, creds: dict, ha_client: HAClient, shared: SharedState
+    page: Page,
+    creds: dict,
+    ha_client: HAClient,
+    shared: SharedState,
+    silent_retry_limit: int = DEFAULT_SILENT_RETRY_LIMIT,
 ) -> None:
     _LOGGER.info("Navigating to %s", BASE_URL)
     shared.status_message = "Logging in..."
@@ -136,7 +143,7 @@ async def perform_login(
     shared.consecutive_challenge_failures += 1
     attempt = shared.consecutive_challenge_failures
 
-    if attempt <= SILENT_RETRY_LIMIT:
+    if attempt <= silent_retry_limit:
         # Don't wake the user for a challenge that may well clear on its own -
         # fail this cycle fast and let the next scheduled cycle try again.
         # main.py's own except-block will push this message to the status
@@ -144,10 +151,10 @@ async def perform_login(
         _LOGGER.warning(
             "Visible reCAPTCHA challenge appeared (silent retry %d/%d) - not "
             "notifying, next scheduled cycle will try again on its own",
-            attempt, SILENT_RETRY_LIMIT,
+            attempt, silent_retry_limit,
         )
         raise RuntimeError(
-            f"reCAPTCHA challenge appeared (silent retry {attempt}/{SILENT_RETRY_LIMIT}, no notification sent)"
+            f"reCAPTCHA challenge appeared (silent retry {attempt}/{silent_retry_limit}, no notification sent)"
         )
 
     _LOGGER.warning(
@@ -180,11 +187,15 @@ async def perform_login(
 
 
 async def ensure_logged_in(
-    page: Page, creds: dict, ha_client: HAClient, shared: SharedState
+    page: Page,
+    creds: dict,
+    ha_client: HAClient,
+    shared: SharedState,
+    silent_retry_limit: int = DEFAULT_SILENT_RETRY_LIMIT,
 ) -> None:
     await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=LOGIN_TIMEOUT_MS)
     if await is_login_page(page):
-        await perform_login(page, creds, ha_client, shared)
+        await perform_login(page, creds, ha_client, shared, silent_retry_limit)
     else:
         _LOGGER.info("Already logged in (persistent session still valid)")
         shared.consecutive_challenge_failures = 0

@@ -62,6 +62,7 @@ than living inside the Home Assistant Core process.
    - `scan_interval_minutes` (optional, default 10 - see "Choosing a refresh interval").
    - `history_window_days` (optional, default 3).
    - `anomaly_threshold_liters` (optional, default 500).
+   - `silent_recaptcha_retries` (optional, default 1 - see "If a visible reCAPTCHA shows up").
 5. Save and **start** the add-on (Info tab → Start). Also enable "Start on boot" and "Watchdog"
    if you want it to recover on its own after an HA restart or a crash.
 6. The first run does a one-time ~365-day history backfill (takes a few seconds to minutes),
@@ -75,11 +76,13 @@ squares with motorcycles", etc). reCAPTCHA's risk score is per-attempt, and in p
 challenge that appears on one cycle often does not reappear on the very next one 10 minutes
 later, with nobody touching anything - so the add-on does not bother you the first time:
 
-1. **First challenge**: handled silently. That cycle fails fast (no waiting, no notification)
-   and the next scheduled cycle just tries again on its own. Most of the time this is the end of
-   it - check the add-on's log if you're curious, but there's nothing to do.
-2. **If it happens again right after**, with no successful login in between: *now* you get a
-   **persistent Home Assistant notification**, and the add-on waits for you to solve it.
+1. **First challenge(s)**: handled silently, up to `silent_recaptcha_retries` times in a row
+   (default 1). Each of those cycles fails fast (no waiting, no notification) and the next
+   scheduled cycle just tries again on its own. Most of the time this is the end of it - check
+   the add-on's log if you're curious, but there's nothing to do. Set `silent_recaptcha_retries`
+   to `0` if you'd rather be notified on the very first challenge, like earlier versions did.
+2. **If it keeps happening**, past that limit, with no successful login in between: *now* you get
+   a **persistent Home Assistant notification**, and the add-on waits for you to solve it.
    - Open the add-on's panel: its sidebar icon (if pinned), or **Settings → Add-ons → Canal de
      Isabel II (consumo de agua) → open web UI** (the icon on the "Info" tab, top right).
    - You'll see a live screenshot of the browser. Click the tiles just like you would on the
@@ -199,6 +202,7 @@ automation:
 | `scan_interval_minutes` | 10-1440 | 10 | How often it refreshes, in minutes. The default sits under the portal's 15-minute session timeout on purpose - read "Choosing a refresh interval" before raising it. |
 | `history_window_days` | 1-30 | 3 | How many days back each normal cycle re-checks, to catch late corrections from the meter itself. |
 | `anomaly_threshold_liters` | 50-5000 | 500 | Liters/hour above which an hour is considered anomalous (see "Anomaly detection"). |
+| `silent_recaptcha_retries` | 0-5 | 1 | How many consecutive reCAPTCHA challenges (no successful login in between) to retry silently before notifying you and waiting for a manual solve. See "If a visible reCAPTCHA shows up" above. `0` restores the old behaviour of notifying on every challenge. |
 
 ### Choosing a refresh interval
 
