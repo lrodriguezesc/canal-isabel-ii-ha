@@ -35,12 +35,10 @@ MANUAL_CHALLENGE_TIMEOUT_MS = 10 * 60 * 1000
 
 # How many consecutive challenge failures (no successful login in between) to
 # absorb silently before notifying the user and waiting for a manual solve.
-# 1 = the first challenge always gets one silent auto-retry on the next
-# scheduled cycle; the user is only bothered if it happens twice in a row.
 # Configurable via the add-on's silent_recaptcha_retries option (0 restores
 # the old behaviour of notifying on every challenge); this is just the
 # fallback for direct callers that don't pass one explicitly.
-DEFAULT_SILENT_RETRY_LIMIT = 1
+DEFAULT_SILENT_RETRY_LIMIT = 10
 
 
 _SESSION_CONFIG_JS = """() => {

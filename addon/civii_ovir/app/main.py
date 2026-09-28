@@ -394,7 +394,7 @@ async def main() -> None:
     history_days = int(os.environ.get("CIVII_HISTORY_WINDOW_DAYS", "3"))
     ingress_port = int(os.environ.get("CIVII_INGRESS_PORT", "8099"))
     anomaly_threshold_liters = float(os.environ.get("CIVII_ANOMALY_THRESHOLD_LITERS", "500"))
-    silent_retry_limit = int(os.environ.get("CIVII_SILENT_RECAPTCHA_RETRIES", "1"))
+    silent_retry_limit = int(os.environ.get("CIVII_SILENT_RECAPTCHA_RETRIES", "10"))
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
